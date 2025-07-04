@@ -1,8 +1,5 @@
 package pl.fishingTimer;
 
-import org.bukkit.Location;
-import org.bukkit.Sound;
-import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.FishHook;
 import org.bukkit.entity.Player;
@@ -30,20 +27,16 @@ public class FishingListener implements Listener {
         Player player = event.getPlayer();
         PlayerFishEvent.State state = event.getState();
         
-        plugin.getLogger().info("Player " + player.getName() + " fishing state: " + state);
-        
         if (state == PlayerFishEvent.State.FISHING) {
-            // Rozpoczęcie wędkowania - używamy getEntity() dla Bukkit 1.8
+            // Rozpoczęcie wędkowania
             Entity entity = event.getEntity();
             if (entity instanceof FishHook) {
                 FishHook hook = (FishHook) entity;
                 startTimer(player, hook);
-                plugin.getLogger().info("Started timer for " + player.getName());
             }
         } else {
-            // Zakończenie wędkowania - wszystkie inne stany kończą timer
+            // Zakończenie wędkowania
             stopTimer(player);
-            plugin.getLogger().info("Stopped timer for " + player.getName());
         }
     }
     
@@ -58,55 +51,11 @@ public class FishingListener implements Listener {
         
         // Sprawdź czy hook jest prawidłowy
         if (hook == null || !hook.isValid()) {
-            plugin.getLogger().warning("Invalid hook for player " + player.getName());
-            return;
-        }
-        
-        // Stwórz niewidzialny armor stand nad spławikiem
-        Location hookLoc = hook.getLocation();
-        if (hookLoc == null || hookLoc.getWorld() == null) {
-            plugin.getLogger().warning("Invalid hook location for player " + player.getName());
-            return;
-        }
-        
-        Location armorStandLoc = hookLoc.clone().add(0, 1.5, 0);
-        ArmorStand armorStand;
-        
-        try {
-            armorStand = armorStandLoc.getWorld().spawn(armorStandLoc, ArmorStand.class);
-        } catch (Exception e) {
-            plugin.getLogger().severe("Failed to spawn armor stand: " + e.getMessage());
-            return;
-        }
-        
-        // Konfiguracja armor stand - sprawdzenie każdej metody
-        try {
-            armorStand.setVisible(false);
-            armorStand.setGravity(false);
-            armorStand.setCanPickupItems(false);
-            armorStand.setCustomNameVisible(true);
-            
-            // Te metody mogą nie istnieć w starszych wersjach
-            try {
-                armorStand.setMarker(true);
-            } catch (Exception e) {
-                plugin.getLogger().info("setMarker() not available in this version");
-            }
-            
-            try {
-                armorStand.setSmall(true);
-            } catch (Exception e) {
-                plugin.getLogger().info("setSmall() not available in this version");
-            }
-            
-        } catch (Exception e) {
-            plugin.getLogger().severe("Failed to configure armor stand: " + e.getMessage());
-            armorStand.remove();
             return;
         }
         
         // Stwórz dane timera
-        TimerData timerData = new TimerData(hook, armorStand);
+        TimerData timerData = new TimerData(hook);
         activeTimers.put(player, timerData);
         
         // Rozpocznij timer
@@ -121,26 +70,23 @@ public class FishingListener implements Listener {
                 }
                 
                 if (timeLeft > 0) {
-                    // Aktualizuj pozycję armor stand
+                    // Wyświetl czas w action bar lub chat
+                    double seconds = timeLeft / 10.0;
+                    String timeDisplay = String.format("§e⏰ Czas: %.1fs", seconds);
+                    
+                    // Próbuj użyć action bar, jeśli nie ma to zwykły chat
                     try {
-                        Location newLoc = hook.getLocation();
-                        if (newLoc != null) {
-                            newLoc.add(0, 1.5, 0);
-                            armorStand.teleport(newLoc);
-                            
-                            // Oblicz i wyświetl czas
-                            double seconds = timeLeft / 10.0;
-                            String timeDisplay = String.format("§e⏰ %.1fs", seconds);
-                            armorStand.setCustomName(timeDisplay);
-                        }
+                        // Spróbuj wysłać action bar (może nie działać w 1.8)
+                        player.sendMessage(timeDisplay);
                     } catch (Exception e) {
-                        plugin.getLogger().warning("Error updating timer display: " + e.getMessage());
+                        // Fallback do zwykłej wiadomości
+                        player.sendMessage(timeDisplay);
                     }
                     
                     timeLeft--;
                 } else {
                     // Timer skończony - symuluj złapanie ryby
-                    simulateFishCatch(player, hook);
+                    simulateFishCatch(player);
                     stopTimer(player);
                 }
             }
@@ -149,59 +95,16 @@ public class FishingListener implements Listener {
         timerData.setTask(task);
     }
     
-    private void simulateFishCatch(Player player, FishHook hook) {
-        // Efekty dźwiękowe - używamy enum Sound dla kompatybilności
-        try {
-            // Najpierw próbujemy nowszą nazwę
-            player.playSound(player.getLocation(), Sound.valueOf("ENTITY_PLAYER_SPLASH"), 1.0f, 1.2f);
-        } catch (Exception e) {
-            try {
-                // Następnie starszą nazwę
-                player.playSound(player.getLocation(), Sound.valueOf("SPLASH"), 1.0f, 1.2f);
-            } catch (Exception e2) {
-                try {
-                    // Jeszcze starszą
-                    player.playSound(player.getLocation(), Sound.valueOf("WATER"), 1.0f, 1.2f);
-                } catch (Exception e3) {
-                    plugin.getLogger().info("No compatible splash sound found");
-                }
-            }
-        }
-        
+    private void simulateFishCatch(Player player) {
         // Komunikat
         player.sendMessage("§a✓ Ryba złapana! Wyciągnij wędkę!");
         
-        // Sprawdź czy sendTitle jest dostępne
+        // Prosty efekt dźwiękowy - używamy podstawowego dźwięku
         try {
-            // Użyj refleksji do sprawdzenia czy metoda istnieje
-            player.getClass().getMethod("sendTitle", String.class, String.class, int.class, int.class, int.class);
-            player.sendTitle("§a🐟 Ryba złapana!", "§fWyciągnij wędkę!", 10, 60, 20);
+            player.getWorld().playSound(player.getLocation(), "random.pop", 1.0f, 1.2f);
         } catch (Exception e) {
-            // sendTitle nie jest dostępne
-            player.sendMessage("§a🐟 Ryba złapana!");
+            // Jeśli nie ma dźwięku, to trudno
         }
-        
-        // Dodatkowy efekt po chwili
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (player.isOnline()) {
-                    try {
-                        player.playSound(player.getLocation(), Sound.valueOf("ENTITY_ITEM_PICKUP"), 0.7f, 0.8f);
-                    } catch (Exception e) {
-                        try {
-                            player.playSound(player.getLocation(), Sound.valueOf("ITEM_PICKUP"), 0.7f, 0.8f);
-                        } catch (Exception e2) {
-                            try {
-                                player.playSound(player.getLocation(), Sound.valueOf("ORB_PICKUP"), 0.7f, 0.8f);
-                            } catch (Exception e3) {
-                                // Brak kompatybilnego dźwięku
-                            }
-                        }
-                    }
-                }
-            }
-        }.runTaskLater(plugin, 10L);
     }
     
     public void stopTimer(Player player) {
@@ -221,12 +124,10 @@ public class FishingListener implements Listener {
     // Klasa do przechowywania danych timera
     private static class TimerData {
         private final FishHook hook;
-        private final ArmorStand armorStand;
         private BukkitTask task;
         
-        public TimerData(FishHook hook, ArmorStand armorStand) {
+        public TimerData(FishHook hook) {
             this.hook = hook;
-            this.armorStand = armorStand;
         }
         
         public void setTask(BukkitTask task) {
@@ -236,9 +137,6 @@ public class FishingListener implements Listener {
         public void cleanup() {
             if (task != null) {
                 task.cancel();
-            }
-            if (armorStand != null && armorStand.isValid()) {
-                armorStand.remove();
             }
         }
     }
