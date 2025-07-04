@@ -1,0 +1,11 @@
+name: FishingTimer
+version: 1.0
+main: pl.fishingTimer.FishingTimer
+api-version: 1.13
+author: YourName
+description: Plugin wyświetlający timer nad spławikiem podczas wędkowania
+
+commands:
+  stoptimer:
+    description: Zatrzymuje aktywny timer wędkowania
+    usage: /stoptimer
