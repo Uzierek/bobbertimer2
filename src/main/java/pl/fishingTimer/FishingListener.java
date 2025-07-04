@@ -31,8 +31,9 @@ public class FishingListener implements Listener {
             // Rozpoczęcie wędkowania
             startTimer(player, event.getHook());
         } else if (event.getState() == PlayerFishEvent.State.CAUGHT_FISH || 
-                   event.getState() == PlayerFishEvent.State.REEL_IN) {
-            // Zakończenie wędkowania
+                   event.getState() == PlayerFishEvent.State.CAUGHT_ENTITY ||
+                   event.getState() == PlayerFishEvent.State.FAILED_ATTEMPT) {
+            // Zakończenie wędkowania - zastąpiono REEL_IN stanami dostępnymi w Bukkit 1.8
             stopTimer(player);
         }
     }
@@ -96,19 +97,36 @@ public class FishingListener implements Listener {
     }
     
     private void simulateFishCatch(Player player, FishHook hook) {
-        // Efekty dźwiękowe
-        player.playSound(player.getLocation(), "entity.player.splash", 1.0f, 1.2f);
+        // Efekty dźwiękowe - używamy starszej składni dla Bukkit 1.8
+        try {
+            player.playSound(player.getLocation(), "entity.player.splash", 1.0f, 1.2f);
+        } catch (Exception e) {
+            // Fallback dla starszych wersji - może wymagać innych nazw dźwięków
+            player.playSound(player.getLocation(), "splash", 1.0f, 1.2f);
+        }
         
         // Komunikat
         player.sendMessage("§a✓ Ryba złapana! Wyciągnij wędkę!");
-        player.sendTitle("§a🐟 Ryba złapana!", "§fWyciągnij wędkę!", 10, 60, 20);
+        
+        // Sprawdź czy sendTitle jest dostępne w tej wersji
+        try {
+            player.sendTitle("§a🐟 Ryba złapana!", "§fWyciągnij wędkę!", 10, 60, 20);
+        } catch (Exception e) {
+            // Jeśli sendTitle nie jest dostępne, używamy tylko wiadomości
+            player.sendMessage("§a🐟 Ryba złapana!");
+        }
         
         // Dodatkowy efekt po chwili
         new BukkitRunnable() {
             @Override
             public void run() {
                 if (player.isOnline()) {
-                    player.playSound(player.getLocation(), "entity.item.pickup", 0.7f, 0.8f);
+                    try {
+                        player.playSound(player.getLocation(), "entity.item.pickup", 0.7f, 0.8f);
+                    } catch (Exception e) {
+                        // Fallback dla starszych wersji
+                        player.playSound(player.getLocation(), "item.pickup", 0.7f, 0.8f);
+                    }
                 }
             }
         }.runTaskLater(plugin, 10L);
