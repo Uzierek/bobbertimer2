@@ -1,7 +1,9 @@
 package pl.fishingTimer;
 
 import org.bukkit.Location;
+import org.bukkit.Sound;
 import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.FishHook;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -26,15 +28,22 @@ public class FishingListener implements Listener {
     @EventHandler
     public void onPlayerFish(PlayerFishEvent event) {
         Player player = event.getPlayer();
+        PlayerFishEvent.State state = event.getState();
         
-        if (event.getState() == PlayerFishEvent.State.FISHING) {
-            // Rozpoczęcie wędkowania
-            startTimer(player, event.getHook());
-        } else if (event.getState() == PlayerFishEvent.State.CAUGHT_FISH || 
-                   event.getState() == PlayerFishEvent.State.CAUGHT_ENTITY ||
-                   event.getState() == PlayerFishEvent.State.FAILED_ATTEMPT) {
-            // Zakończenie wędkowania - zastąpiono REEL_IN stanami dostępnymi w Bukkit 1.8
+        plugin.getLogger().info("Player " + player.getName() + " fishing state: " + state);
+        
+        if (state == PlayerFishEvent.State.FISHING) {
+            // Rozpoczęcie wędkowania - używamy getEntity() dla Bukkit 1.8
+            Entity entity = event.getEntity();
+            if (entity instanceof FishHook) {
+                FishHook hook = (FishHook) entity;
+                startTimer(player, hook);
+                plugin.getLogger().info("Started timer for " + player.getName());
+            }
+        } else {
+            // Zakończenie wędkowania - wszystkie inne stany kończą timer
             stopTimer(player);
+            plugin.getLogger().info("Stopped timer for " + player.getName());
         }
     }
     
@@ -47,17 +56,54 @@ public class FishingListener implements Listener {
         // Zatrzymaj poprzedni timer jeśli istnieje
         stopTimer(player);
         
-        // Stwórz niewidzialny armor stand nad spławikiem
-        Location hookLoc = hook.getLocation().add(0, 1.5, 0);
-        ArmorStand armorStand = hookLoc.getWorld().spawn(hookLoc, ArmorStand.class);
+        // Sprawdź czy hook jest prawidłowy
+        if (hook == null || !hook.isValid()) {
+            plugin.getLogger().warning("Invalid hook for player " + player.getName());
+            return;
+        }
         
-        // Konfiguracja armor stand
-        armorStand.setVisible(false);
-        armorStand.setGravity(false);
-        armorStand.setCanPickupItems(false);
-        armorStand.setCustomNameVisible(true);
-        armorStand.setMarker(true);
-        armorStand.setSmall(true);
+        // Stwórz niewidzialny armor stand nad spławikiem
+        Location hookLoc = hook.getLocation();
+        if (hookLoc == null || hookLoc.getWorld() == null) {
+            plugin.getLogger().warning("Invalid hook location for player " + player.getName());
+            return;
+        }
+        
+        Location armorStandLoc = hookLoc.clone().add(0, 1.5, 0);
+        ArmorStand armorStand;
+        
+        try {
+            armorStand = armorStandLoc.getWorld().spawn(armorStandLoc, ArmorStand.class);
+        } catch (Exception e) {
+            plugin.getLogger().severe("Failed to spawn armor stand: " + e.getMessage());
+            return;
+        }
+        
+        // Konfiguracja armor stand - sprawdzenie każdej metody
+        try {
+            armorStand.setVisible(false);
+            armorStand.setGravity(false);
+            armorStand.setCanPickupItems(false);
+            armorStand.setCustomNameVisible(true);
+            
+            // Te metody mogą nie istnieć w starszych wersjach
+            try {
+                armorStand.setMarker(true);
+            } catch (Exception e) {
+                plugin.getLogger().info("setMarker() not available in this version");
+            }
+            
+            try {
+                armorStand.setSmall(true);
+            } catch (Exception e) {
+                plugin.getLogger().info("setSmall() not available in this version");
+            }
+            
+        } catch (Exception e) {
+            plugin.getLogger().severe("Failed to configure armor stand: " + e.getMessage());
+            armorStand.remove();
+            return;
+        }
         
         // Stwórz dane timera
         TimerData timerData = new TimerData(hook, armorStand);
@@ -76,13 +122,20 @@ public class FishingListener implements Listener {
                 
                 if (timeLeft > 0) {
                     // Aktualizuj pozycję armor stand
-                    Location newLoc = hook.getLocation().add(0, 1.5, 0);
-                    armorStand.teleport(newLoc);
-                    
-                    // Oblicz i wyświetl czas
-                    double seconds = timeLeft / 10.0;
-                    String timeDisplay = String.format("§e⏰ %.1fs", seconds);
-                    armorStand.setCustomName(timeDisplay);
+                    try {
+                        Location newLoc = hook.getLocation();
+                        if (newLoc != null) {
+                            newLoc.add(0, 1.5, 0);
+                            armorStand.teleport(newLoc);
+                            
+                            // Oblicz i wyświetl czas
+                            double seconds = timeLeft / 10.0;
+                            String timeDisplay = String.format("§e⏰ %.1fs", seconds);
+                            armorStand.setCustomName(timeDisplay);
+                        }
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("Error updating timer display: " + e.getMessage());
+                    }
                     
                     timeLeft--;
                 } else {
@@ -97,22 +150,34 @@ public class FishingListener implements Listener {
     }
     
     private void simulateFishCatch(Player player, FishHook hook) {
-        // Efekty dźwiękowe - używamy starszej składni dla Bukkit 1.8
+        // Efekty dźwiękowe - używamy enum Sound dla kompatybilności
         try {
-            player.playSound(player.getLocation(), "entity.player.splash", 1.0f, 1.2f);
+            // Najpierw próbujemy nowszą nazwę
+            player.playSound(player.getLocation(), Sound.valueOf("ENTITY_PLAYER_SPLASH"), 1.0f, 1.2f);
         } catch (Exception e) {
-            // Fallback dla starszych wersji - może wymagać innych nazw dźwięków
-            player.playSound(player.getLocation(), "splash", 1.0f, 1.2f);
+            try {
+                // Następnie starszą nazwę
+                player.playSound(player.getLocation(), Sound.valueOf("SPLASH"), 1.0f, 1.2f);
+            } catch (Exception e2) {
+                try {
+                    // Jeszcze starszą
+                    player.playSound(player.getLocation(), Sound.valueOf("WATER"), 1.0f, 1.2f);
+                } catch (Exception e3) {
+                    plugin.getLogger().info("No compatible splash sound found");
+                }
+            }
         }
         
         // Komunikat
         player.sendMessage("§a✓ Ryba złapana! Wyciągnij wędkę!");
         
-        // Sprawdź czy sendTitle jest dostępne w tej wersji
+        // Sprawdź czy sendTitle jest dostępne
         try {
+            // Użyj refleksji do sprawdzenia czy metoda istnieje
+            player.getClass().getMethod("sendTitle", String.class, String.class, int.class, int.class, int.class);
             player.sendTitle("§a🐟 Ryba złapana!", "§fWyciągnij wędkę!", 10, 60, 20);
         } catch (Exception e) {
-            // Jeśli sendTitle nie jest dostępne, używamy tylko wiadomości
+            // sendTitle nie jest dostępne
             player.sendMessage("§a🐟 Ryba złapana!");
         }
         
@@ -122,10 +187,17 @@ public class FishingListener implements Listener {
             public void run() {
                 if (player.isOnline()) {
                     try {
-                        player.playSound(player.getLocation(), "entity.item.pickup", 0.7f, 0.8f);
+                        player.playSound(player.getLocation(), Sound.valueOf("ENTITY_ITEM_PICKUP"), 0.7f, 0.8f);
                     } catch (Exception e) {
-                        // Fallback dla starszych wersji
-                        player.playSound(player.getLocation(), "item.pickup", 0.7f, 0.8f);
+                        try {
+                            player.playSound(player.getLocation(), Sound.valueOf("ITEM_PICKUP"), 0.7f, 0.8f);
+                        } catch (Exception e2) {
+                            try {
+                                player.playSound(player.getLocation(), Sound.valueOf("ORB_PICKUP"), 0.7f, 0.8f);
+                            } catch (Exception e3) {
+                                // Brak kompatybilnego dźwięku
+                            }
+                        }
                     }
                 }
             }
